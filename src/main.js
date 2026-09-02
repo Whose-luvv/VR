@@ -63,7 +63,7 @@ function makeLabel(icon,text,action,x,width=.62){
 }
 makeLabel('↶','10s',()=>seek(-10),-1.36,.65); makeLabel('▶','Play',toggle,-.52,.92); makeLabel('↷','10s',()=>seek(10),.38,.65); makeLabel('−','Volume',()=>volume(-.1),1.08,.7); makeLabel('+','Volume',()=>volume(.1),1.78,.7);
 makeLabel('−','Zoom',()=>zoom(-.35),-.8,.72);buttons.at(-1).position.y=-.4;makeLabel('+','Zoom',()=>zoom(.35),0,.72);buttons.at(-1).position.y=-.4;makeLabel('◎','Center',recenter,.8,.8);buttons.at(-1).position.y=-.4;
-makeLabel('×','Hide',collapseControls,1.68,.68);buttons.at(-1).position.y=-.4;
+const closeButton=makeLabel('×','Hide',collapseControls,1.68,.68);closeButton.position.y=-.4;
 const progressBg=new THREE.Mesh(new THREE.PlaneGeometry(3.75,.08),new THREE.MeshBasicMaterial({color:0x283449,depthTest:false}));progressBg.position.set(.2,.28,0);ui.add(progressBg);
 const progress=new THREE.Mesh(new THREE.PlaneGeometry(3.75,.08),new THREE.MeshBasicMaterial({color:0xd9dde3,depthTest:false}));progress.position.set(-1.675,.28,.002);progress.scale.x=0;ui.add(progress);
 const raycaster=new THREE.Raycaster(), center=new THREE.Vector2(0,0);let hovered=null, hoverAt=0;
@@ -94,14 +94,14 @@ function zoom(n){const factor=n>0?1.15:1/1.15;if(projection==='flat')screen.scal
 function recenter(){bringVideoHere()}
 function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1400)}
 function placeInView(object,y=-.15,distance=2.25){object.position.set(0,y,-distance).applyQuaternion(camera.quaternion).add(camera.position);object.quaternion.copy(camera.quaternion)}
-function bringVideoHere(){camera.updateMatrixWorld();contentDirection.copy(camera.quaternion);if(projection==='flat'){screen.position.set(0,0,-4).applyQuaternion(camera.quaternion).add(camera.position);screen.quaternion.copy(camera.quaternion)}else sphere.quaternion.copy(camera.quaternion);bringPrompt.visible=false;showControls();toast('Video moved to current view')}
+function bringVideoHere(){camera.updateMatrixWorld();contentDirection.copy(camera.quaternion);if(projection==='flat'){screen.position.set(0,0,-4).applyQuaternion(camera.quaternion).add(camera.position);screen.quaternion.copy(camera.quaternion)}else sphere.quaternion.copy(camera.quaternion);bringPrompt.visible=false;if(!menuCollapsed)showControls();toast('Video moved to current view')}
 function showControls(){
   if(!cardboard)return;menuCollapsed=false;drawer.visible=false;controlsShown=true;controlsUntil=performance.now()+5000;ui.visible=true;reticle.visible=true;
   // Pin the panel in front of the current view, then leave it in world space so gaze can target it.
   ui.position.set(0,-1.05,-2.7).applyQuaternion(camera.quaternion).add(camera.position);ui.quaternion.copy(camera.quaternion);
 }
 function hideControls(){controlsShown=false;ui.visible=false;dwell.visible=false;hovered=null;hiddenView.copy(camera.quaternion)}
-function collapseControls(){menuCollapsed=true;hideControls();drawer.visible=false;reticle.visible=false;toast('Controls hidden')}
+function collapseControls(){ui.updateMatrixWorld(true);closeButton.getWorldPosition(drawer.position);drawer.quaternion.copy(ui.quaternion);menuCollapsed=true;hideControls();drawer.visible=true;drawer.material.opacity=.34;drawerUntil=Infinity;reticle.visible=true;toast('Controls hidden')}
 function showDrawer(){if(!cardboard||!menuCollapsed)return;placeInView(drawer,.35,2.1);drawer.visible=true;drawer.material.opacity=.34;drawerUntil=performance.now()+10000;reticle.visible=true}
 function expandControls(){menuCollapsed=false;drawer.visible=false;showControls()}
 function activatePhysicalTarget(){
@@ -148,7 +148,7 @@ function render(){const now=performance.now();if(active&&video.duration)progress
     const turnFromVideo=camera.quaternion.angleTo(contentDirection);
     if(turnFromVideo>=THREE.MathUtils.degToRad(80)&&!bringPrompt.visible){placeInView(bringPrompt,0,1.9);bringPrompt.visible=true;reticle.visible=true}else if(turnFromVideo<THREE.MathUtils.degToRad(45))bringPrompt.visible=false;
     if(controlsShown&&now>=controlsUntil)hideControls();
-    else if(menuCollapsed){if(drawer.visible&&now>=drawerUntil){drawer.visible=false;hiddenView.copy(camera.quaternion);if(!bringPrompt.visible)reticle.visible=false}else if(!drawer.visible&&camera.quaternion.angleTo(hiddenView)>=THREE.MathUtils.degToRad(20))showDrawer()}
+    else if(menuCollapsed){drawerUntil=Infinity}
     else if(!controlsShown&&camera.quaternion.angleTo(hiddenView)>=THREE.MathUtils.degToRad(20))showControls();
     if(controlsShown){const opacity=Math.min(1,Math.max(0,(controlsUntil-now)/500));ui.traverse(o=>{if(o.material){o.material.transparent=true;o.material.opacity=opacity}})}
     const targets=buttons.filter(o=>o.visible&&o.parent?.visible!==false);camera.updateMatrixWorld();raycaster.setFromCamera(center,camera);const hit=raycaster.intersectObjects(targets,false)[0]?.object||null;if(hit!==hovered){hovered=hit;hoverAt=now;buttons.forEach(b=>b.userData.targetScale=b===hovered?1.1:1);reticle.material.color.set(hovered?0xe2e5e9:0xffffff)}if(hovered===drawer)drawerUntil=Math.max(drawerUntil,now+1200);buttons.forEach(b=>{const pulse=now-(b.userData.pulseAt||0)<180?1.13:(b.userData.targetScale||1);const scale=THREE.MathUtils.lerp(b.scale.x,pulse,.18);b.scale.setScalar(scale);b.material.color.lerp(b===hovered?buttonGlow:buttonWhite,.14)});const elapsed=hovered?now-hoverAt:0,dwellMs=hovered?(hovered.userData.dwellMs||900):900,dwellProgress=Math.min(1,elapsed/dwellMs);dwell.visible=!!hovered;dwell.material.opacity=Math.min(.9,dwellProgress);dwell.rotation.z=-elapsed*.003;dwell.scale.setScalar(.7+.5*dwellProgress);if(hovered&&elapsed>dwellMs){hovered.userData.action();controlsUntil=now+5000;hoverAt=now+650}reticleOutline.visible=reticle.visible;
