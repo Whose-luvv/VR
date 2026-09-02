@@ -110,7 +110,8 @@ function activatePhysicalTarget(){
   // Prefer the exact center-ray target. Some headset buttons touch the screen
   // before Android sends a usable pointer position, so fall back to the one
   // special action currently visible (the prompt has priority over the drawer).
-  const target=raycaster.intersectObjects(tapTargets,false)[0]?.object||(bringPrompt.visible?bringPrompt:null)||(drawer.visible?drawer:null);
+  const highlightedTarget=hovered&&tapTargets.includes(hovered)?hovered:null;
+  const target=raycaster.intersectObjects(tapTargets,false)[0]?.object||highlightedTarget||(bringPrompt.visible?bringPrompt:null)||(drawer.visible?drawer:null);
   if(!target)return false;lastPhysicalActivation=performance.now();target.userData.pulseAt=performance.now();target.userData.action();return true;
 }
 
