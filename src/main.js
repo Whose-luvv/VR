@@ -53,7 +53,7 @@ screen.position.set(0,1.6,-4); screen.visible=false; scene.add(screen);
 // could never move the center ray onto a button.
 const ui = new THREE.Group(); scene.add(ui); ui.position.set(0,.55,-2.7); ui.visible=false;
 const buttons=[];
-function panelTexture(){const c=document.createElement('canvas');c.width=1024;c.height=320;const g=c.getContext('2d');g.shadowColor='#000c';g.shadowBlur=26;g.fillStyle='#0b0d11e8';g.roundRect(18,18,988,284,32);g.fill();g.shadowBlur=0;g.strokeStyle='#ffffff22';g.lineWidth=2;g.stroke();g.fillStyle='#9298a3';g.font='500 22px system-ui';g.textAlign='center';g.fillText('LOOK  •  HOLD TO SELECT',512,60);return new THREE.CanvasTexture(c)}
+function panelTexture(){const c=document.createElement('canvas');c.width=1024;c.height=320;const g=c.getContext('2d');g.shadowColor='#000c';g.shadowBlur=26;g.fillStyle='#0b0d11e8';g.roundRect(18,18,988,284,32);g.fill();g.shadowBlur=0;g.strokeStyle='#ffffff22';g.lineWidth=2;g.stroke();g.fillStyle='#9298a3';g.font='500 22px system-ui';g.textAlign='center';g.fillText('AIM  •  CLICK TO SELECT',512,60);return new THREE.CanvasTexture(c)}
 const controlPanel=new THREE.Mesh(new THREE.PlaneGeometry(4.15,1.3),new THREE.MeshBasicMaterial({map:panelTexture(),transparent:true,depthTest:false,depthWrite:false}));controlPanel.position.set(.2,-.04,-.035);controlPanel.renderOrder=1;ui.add(controlPanel);
 function makeLabel(icon,text,action,x,width=.62){
   const c=document.createElement('canvas'); c.width=1024; c.height=320; const g=c.getContext('2d');
@@ -106,7 +106,7 @@ function expandControls(){menuCollapsed=false;drawer.visible=false;showControls(
 function activatePhysicalTarget(){
   if(!cardboard||performance.now()-lastPhysicalActivation<350)return false;
   camera.updateMatrixWorld(true);raycaster.setFromCamera(center,camera);
-  const tapTargets=buttons.filter(o=>o.userData.tapOnly&&o.visible&&o.parent?.visible!==false);
+  const tapTargets=buttons.filter(o=>o.visible&&o.parent?.visible!==false);
   // Prefer the exact center-ray target. Some headset buttons touch the screen
   // before Android sends a usable pointer position, so fall back to the one
   // special action currently visible (the prompt has priority over the drawer).
@@ -139,7 +139,7 @@ window.addEventListener('deviceorientation',e=>{if(!cardboard||renderer.xr.isPre
 canvas.addEventListener('pointerdown',e=>{dragging=true;lastX=pointerStartX=e.clientX;lastY=pointerStartY=e.clientY;if(active&&!cardboard)toggle()});canvas.addEventListener('pointerenter',e=>{lastX=e.clientX;lastY=e.clientY});window.addEventListener('pointerup',e=>{const wasTap=Math.hypot((e.clientX??pointerStartX)-pointerStartX,(e.clientY??pointerStartY)-pointerStartY)<18;dragging=false;if(wasTap)activatePhysicalTarget()});window.addEventListener('pointermove',e=>{if(!dragging&&!cardboard){lastX=e.clientX;lastY=e.clientY;return}const dx=e.clientX-lastX,dy=e.clientY-lastY;if(Math.abs(dx)>innerWidth/2||Math.abs(dy)>innerHeight/2){lastX=e.clientX;lastY=e.clientY;return}yaw-=dx*.004;pitch=Math.max(-1.4,Math.min(1.4,pitch-dy*.004));camera.rotation.set(pitch,yaw,0,'YXZ');lastX=e.clientX;lastY=e.clientY});
 // Capture on the whole document because a mechanical headset button can touch
 // an overlay rather than the WebGL canvas, and many viewers emit press-down only.
-for(const eventName of ['pointerdown','mousedown','touchstart','click'])document.addEventListener(eventName,e=>{if(!e.target?.closest?.('#exit, #launcher'))activatePhysicalTarget()},{capture:true,passive:true});
+for(const eventName of ['pointerdown','mousedown','touchstart','click'])document.addEventListener(eventName,e=>{if(!cardboard||e.target?.closest?.('#launcher'))return;if(activatePhysicalTarget()){e.preventDefault();e.stopPropagation()}},{capture:true,passive:false});
 window.addEventListener('keydown',e=>{if(cardboard&&(e.key==='Enter'||e.key===' ')){e.preventDefault();activatePhysicalTarget()}});
 
 function render(){const now=performance.now();if(active&&video.duration)progress.scale.x=Math.max(.001,video.currentTime/video.duration);if(cardboard){
@@ -149,7 +149,7 @@ function render(){const now=performance.now();if(active&&video.duration)progress
     else if(menuCollapsed){if(drawer.visible&&now>=drawerUntil){drawer.visible=false;hiddenView.copy(camera.quaternion);if(!bringPrompt.visible)reticle.visible=false}else if(!drawer.visible&&camera.quaternion.angleTo(hiddenView)>=THREE.MathUtils.degToRad(20))showDrawer()}
     else if(!controlsShown&&camera.quaternion.angleTo(hiddenView)>=THREE.MathUtils.degToRad(20))showControls();
     if(controlsShown){const opacity=Math.min(1,Math.max(0,(controlsUntil-now)/500));ui.traverse(o=>{if(o.material){o.material.transparent=true;o.material.opacity=opacity}})}
-    const targets=buttons.filter(o=>o.visible&&o.parent?.visible!==false);camera.updateMatrixWorld();raycaster.setFromCamera(center,camera);const hit=raycaster.intersectObjects(targets,false)[0]?.object||null;if(hit!==hovered){hovered=hit;hoverAt=now;buttons.forEach(b=>b.userData.targetScale=b===hovered?1.1:1);reticle.material.color.set(hovered?0xe2e5e9:0xffffff)}if(hovered===drawer)drawerUntil=now+1500;buttons.forEach(b=>{const pulse=now-(b.userData.pulseAt||0)<180?1.13:(b.userData.targetScale||1);const scale=THREE.MathUtils.lerp(b.scale.x,pulse,.18);b.scale.setScalar(scale);b.material.color.lerp(b===hovered?buttonGlow:buttonWhite,.14)});const tapOnly=!!hovered?.userData.tapOnly,elapsed=hovered?now-hoverAt:0,dwellMs=hovered?(hovered.userData.dwellMs||900):900,dwellProgress=Math.min(1,elapsed/dwellMs);dwell.visible=!!hovered&&!tapOnly;dwell.material.opacity=Math.min(.9,dwellProgress);dwell.rotation.z=-elapsed*.003;dwell.scale.setScalar(.7+.5*dwellProgress);if(hovered&&!tapOnly&&elapsed>dwellMs){hovered.userData.action();controlsUntil=now+5000;hoverAt=now+650}
+    const targets=buttons.filter(o=>o.visible&&o.parent?.visible!==false);camera.updateMatrixWorld();raycaster.setFromCamera(center,camera);const hit=raycaster.intersectObjects(targets,false)[0]?.object||null;if(hit!==hovered){hovered=hit;hoverAt=now;buttons.forEach(b=>b.userData.targetScale=b===hovered?1.1:1);reticle.material.color.set(hovered?0xe2e5e9:0xffffff)}if(hovered===drawer)drawerUntil=now+1500;buttons.forEach(b=>{const pulse=now-(b.userData.pulseAt||0)<180?1.13:(b.userData.targetScale||1);const scale=THREE.MathUtils.lerp(b.scale.x,pulse,.18);b.scale.setScalar(scale);b.material.color.lerp(b===hovered?buttonGlow:buttonWhite,.14)});dwell.visible=false;
   }
   if(cardboard&&!renderer.xr.isPresenting){
     const w=canvas.width, h=canvas.height, eyeW=Math.ceil(w/2);if(leftTarget.width!==eyeW||leftTarget.height!==h){leftTarget.setSize(eyeW,h);rightTarget.setSize(eyeW,h)}camera.updateMatrixWorld();stereoCamera.aspect=.5;stereoCamera.update(camera);
