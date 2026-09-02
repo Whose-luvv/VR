@@ -27,6 +27,8 @@ let projection = 'flat', layout = 'mono', sourceUrl, active = false, cardboard =
 let yaw = 0, pitch = 0, dragging = false, lastX = 0, lastY = 0;
 let orientationEnabled = false, baseHeading = null;
 let controlsUntil = 0, hiddenView = new THREE.Quaternion(), controlsShown = false;
+let menuCollapsed = false, drawerUntil = 0, pointerStartX = 0, pointerStartY = 0;
+const contentDirection = new THREE.Quaternion();
 
 const panoMat = new THREE.ShaderMaterial({
   side: THREE.BackSide,
@@ -60,6 +62,7 @@ function makeLabel(icon,text,action,x,width=.62){
 }
 makeLabel('↶','10s',()=>seek(-10),-1.36,.65); makeLabel('▶','Play',toggle,-.52,.92); makeLabel('↷','10s',()=>seek(10),.38,.65); makeLabel('−','Volume',()=>volume(-.1),1.08,.7); makeLabel('+','Volume',()=>volume(.1),1.78,.7);
 makeLabel('−','Zoom',()=>zoom(-.35),-.8,.72);buttons.at(-1).position.y=-.4;makeLabel('+','Zoom',()=>zoom(.35),0,.72);buttons.at(-1).position.y=-.4;makeLabel('◎','Center',recenter,.8,.8);buttons.at(-1).position.y=-.4;
+makeLabel('×','Hide',collapseControls,1.68,.68);buttons.at(-1).position.y=-.4;
 const progressBg=new THREE.Mesh(new THREE.PlaneGeometry(3.75,.08),new THREE.MeshBasicMaterial({color:0x283449,depthTest:false}));progressBg.position.set(.2,.28,0);ui.add(progressBg);
 const progress=new THREE.Mesh(new THREE.PlaneGeometry(3.75,.08),new THREE.MeshBasicMaterial({color:0xd9dde3,depthTest:false}));progress.position.set(-1.675,.28,.002);progress.scale.x=0;ui.add(progress);
 const raycaster=new THREE.Raycaster(), center=new THREE.Vector2(0,0);let hovered=null, hoverAt=0;
@@ -67,6 +70,9 @@ const buttonWhite=new THREE.Color(0xffffff),buttonGlow=new THREE.Color(0xd9dde3)
 const stereoCamera = new THREE.StereoCamera(); stereoCamera.eyeSep = .064;
 const reticle=new THREE.Mesh(new THREE.CircleGeometry(.0035,16),new THREE.MeshBasicMaterial({color:0xffffff,depthTest:false,depthWrite:false}));reticle.position.set(0,0,-1);camera.add(reticle);reticle.visible=false;
 const dwell=new THREE.Mesh(new THREE.RingGeometry(.026,.031,32),new THREE.MeshBasicMaterial({color:0xe2e5e9,transparent:true,opacity:0,depthTest:false}));dwell.position.set(0,0,-.999);camera.add(dwell);
+function floatingAction(title,subtitle,width){const c=document.createElement('canvas');c.width=640;c.height=180;const g=c.getContext('2d');g.fillStyle='#090b0dcc';g.roundRect(10,10,620,160,32);g.fill();g.strokeStyle='#ffffff44';g.lineWidth=3;g.stroke();g.fillStyle='#fff';g.font='600 35px system-ui';g.textAlign='center';g.fillText(title,320,78);g.fillStyle='#b1b5bc';g.font='500 24px system-ui';g.fillText(subtitle,320,122);const m=new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c),transparent:true,opacity:.38,depthTest:false,depthWrite:false});const o=new THREE.Mesh(new THREE.PlaneGeometry(width,.48),m);o.visible=false;o.renderOrder=5;scene.add(o);buttons.push(o);return o}
+const drawer=floatingAction('☰  Controls','Look and hold to open',1.45);drawer.userData.action=expandControls;
+const bringPrompt=floatingAction('◎  Bring video here','Press headset button or look and hold',2.15);bringPrompt.material.opacity=.68;bringPrompt.userData.action=bringVideoHere;
 
 // Cardboard-style lens correction. Both eyes are rendered first, then warped
 // around each physical lens centre to counter the headset's pincushion optics.
@@ -82,14 +88,19 @@ function toggle(){ video.paused?video.play().catch(()=>toast('Tap once to allow 
 function seek(n){video.currentTime=Math.max(0,Math.min(video.duration||Infinity,video.currentTime+n));toast(`${n>0?'+':''}${n}s`)}
 function volume(n){video.volume=Math.max(0,Math.min(1,video.volume+n));toast(`Volume ${Math.round(video.volume*100)}%`)}
 function zoom(n){if(projection==='flat'){screen.position.z=Math.max(-7,Math.min(-2,screen.position.z+n));}else{camera.fov=Math.max(40,Math.min(100,camera.fov-n*20));camera.updateProjectionMatrix();}toast('Zoom adjusted')}
-function recenter(){baseHeading=null;yaw=pitch=0;camera.quaternion.identity();camera.updateMatrixWorld();showControls();toast('View and controls recentered')}
+function recenter(){bringVideoHere()}
 function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1400)}
+function placeInView(object,y=-.15,distance=2.25){object.position.set(0,y,-distance).applyQuaternion(camera.quaternion).add(camera.position);object.quaternion.copy(camera.quaternion)}
+function bringVideoHere(){camera.updateMatrixWorld();contentDirection.copy(camera.quaternion);if(projection==='flat'){screen.position.set(0,0,-4).applyQuaternion(camera.quaternion).add(camera.position);screen.quaternion.copy(camera.quaternion)}else sphere.quaternion.copy(camera.quaternion);bringPrompt.visible=false;showControls();toast('Video moved to current view')}
 function showControls(){
-  if(!cardboard)return;controlsShown=true;controlsUntil=performance.now()+5000;ui.visible=true;reticle.visible=true;
+  if(!cardboard)return;menuCollapsed=false;drawer.visible=false;controlsShown=true;controlsUntil=performance.now()+5000;ui.visible=true;reticle.visible=true;
   // Pin the panel in front of the current view, then leave it in world space so gaze can target it.
   ui.position.set(0,-1.05,-2.7).applyQuaternion(camera.quaternion).add(camera.position);ui.quaternion.copy(camera.quaternion);
 }
 function hideControls(){controlsShown=false;ui.visible=false;dwell.visible=false;hovered=null;hiddenView.copy(camera.quaternion)}
+function collapseControls(){menuCollapsed=true;hideControls();drawer.visible=false;reticle.visible=false;toast('Controls hidden')}
+function showDrawer(){if(!cardboard||!menuCollapsed)return;placeInView(drawer,.35,2.1);drawer.visible=true;drawer.material.opacity=.32;drawerUntil=performance.now()+3000;reticle.visible=true}
+function expandControls(){menuCollapsed=false;drawer.visible=false;showControls()}
 
 $('.mode-grid').addEventListener('click',e=>{const b=e.target.closest('.mode');if(!b)return;document.querySelectorAll('.mode').forEach(x=>x.classList.toggle('active',x===b));projection=b.dataset.mode;applyProjection()});
 $('#layout').addEventListener('change',e=>{layout=e.target.value;applyProjection()});
@@ -107,17 +118,22 @@ video.addEventListener('loadedmetadata',()=>{$('#status').textContent=`${video.v
 video.addEventListener('error',()=>toast('This browser cannot decode that video format'));
 function format(s){if(!isFinite(s))return 'live';return `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`}
 
-async function start(headset){active=true;cardboard=headset;renderer.setPixelRatio(headset?Math.min(devicePixelRatio,1.15):normalPixelRatio);renderer.setSize(innerWidth,innerHeight);$('#launcher').classList.add('hidden');$('#exit').classList.remove('hidden');applyProjection();await video.play().catch(()=>toast('Tap screen to play'));if(headset){await enableOrientation();showControls();tryFullscreen();screen.orientation?.lock?.('landscape').catch(()=>{});}}
+async function start(headset){active=true;cardboard=headset;menuCollapsed=false;contentDirection.copy(camera.quaternion);renderer.setPixelRatio(headset?Math.min(devicePixelRatio,1.15):normalPixelRatio);renderer.setSize(innerWidth,innerHeight);$('#launcher').classList.add('hidden');$('#exit').classList.remove('hidden');applyProjection();await video.play().catch(()=>toast('Tap screen to play'));if(headset){await enableOrientation();showControls();tryFullscreen();screen.orientation?.lock?.('landscape').catch(()=>{});}}
 $('#normal').onclick=()=>start(false);$('#headset').onclick=()=>start(true);$('#exit').onclick=stop;
-function stop(){active=false;cardboard=false;renderer.setPixelRatio(normalPixelRatio);renderer.setSize(innerWidth,innerHeight);video.pause();ui.visible=reticle.visible=dwell.visible=screen.visible=sphere.visible=false;$('#launcher').classList.remove('hidden');$('#exit').classList.add('hidden');if(document.fullscreenElement)document.exitFullscreen();}
+function stop(){active=false;cardboard=false;renderer.setPixelRatio(normalPixelRatio);renderer.setSize(innerWidth,innerHeight);video.pause();drawer.visible=bringPrompt.visible=ui.visible=reticle.visible=dwell.visible=screen.visible=sphere.visible=false;$('#launcher').classList.remove('hidden');$('#exit').classList.add('hidden');if(document.fullscreenElement)document.exitFullscreen();}
 async function tryFullscreen(){try{await document.documentElement.requestFullscreen({navigationUI:'hide'})}catch{}}
 async function enableOrientation(){if(typeof DeviceOrientationEvent?.requestPermission==='function'){try{orientationEnabled=(await DeviceOrientationEvent.requestPermission())==='granted'}catch{}}else orientationEnabled=true;}
-window.addEventListener('deviceorientation',e=>{if(!cardboard||renderer.xr.isPresenting||!orientationEnabled||e.alpha==null)return;if(baseHeading==null)baseHeading=e.alpha;const rad=THREE.MathUtils.degToRad;const eu=new THREE.Euler(rad(e.beta||0),rad(e.alpha-baseHeading),-rad(e.gamma||0),'YXZ');const q1=new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5));const orient=rad(screen.orientation?.angle||window.orientation||0);camera.quaternion.setFromEuler(eu).multiply(q1).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),-orient));});
-canvas.addEventListener('pointerdown',e=>{dragging=true;lastX=e.clientX;lastY=e.clientY;if(active&&!cardboard)toggle()});canvas.addEventListener('pointerenter',e=>{lastX=e.clientX;lastY=e.clientY});window.addEventListener('pointerup',()=>dragging=false);window.addEventListener('pointermove',e=>{if(!dragging&&!cardboard){lastX=e.clientX;lastY=e.clientY;return}const dx=e.clientX-lastX,dy=e.clientY-lastY;if(Math.abs(dx)>innerWidth/2||Math.abs(dy)>innerHeight/2){lastX=e.clientX;lastY=e.clientY;return}yaw-=dx*.004;pitch=Math.max(-1.4,Math.min(1.4,pitch-dy*.004));camera.rotation.set(pitch,yaw,0,'YXZ');lastX=e.clientX;lastY=e.clientY});
+window.addEventListener('deviceorientation',e=>{if(!cardboard||renderer.xr.isPresenting||!orientationEnabled||e.alpha==null)return;const firstReading=baseHeading==null;if(firstReading)baseHeading=e.alpha;const rad=THREE.MathUtils.degToRad;const eu=new THREE.Euler(rad(e.beta||0),rad(e.alpha-baseHeading),-rad(e.gamma||0),'YXZ');const q1=new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5));const orient=rad(screen.orientation?.angle||window.orientation||0);camera.quaternion.setFromEuler(eu).multiply(q1).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),-orient));if(firstReading)contentDirection.copy(camera.quaternion)});
+canvas.addEventListener('pointerdown',e=>{dragging=true;lastX=pointerStartX=e.clientX;lastY=pointerStartY=e.clientY;if(active&&!cardboard)toggle()});canvas.addEventListener('pointerenter',e=>{lastX=e.clientX;lastY=e.clientY});window.addEventListener('pointerup',e=>{const wasTap=Math.hypot(e.clientX-pointerStartX,e.clientY-pointerStartY)<12;dragging=false;if(cardboard&&wasTap){if(bringPrompt.visible)bringVideoHere();else if(drawer.visible)expandControls()}});window.addEventListener('pointermove',e=>{if(!dragging&&!cardboard){lastX=e.clientX;lastY=e.clientY;return}const dx=e.clientX-lastX,dy=e.clientY-lastY;if(Math.abs(dx)>innerWidth/2||Math.abs(dy)>innerHeight/2){lastX=e.clientX;lastY=e.clientY;return}yaw-=dx*.004;pitch=Math.max(-1.4,Math.min(1.4,pitch-dy*.004));camera.rotation.set(pitch,yaw,0,'YXZ');lastX=e.clientX;lastY=e.clientY});
 
 function render(){const now=performance.now();if(active&&video.duration)progress.scale.x=Math.max(.001,video.currentTime/video.duration);if(cardboard){
-    if(controlsShown&&now>=controlsUntil)hideControls();else if(!controlsShown&&camera.quaternion.angleTo(hiddenView)>=THREE.MathUtils.degToRad(20))showControls();
-    if(controlsShown){const opacity=Math.min(1,Math.max(0,(controlsUntil-now)/500));ui.traverse(o=>{if(o.material){o.material.transparent=true;o.material.opacity=opacity}});camera.updateMatrixWorld();raycaster.setFromCamera(center,camera);const hit=raycaster.intersectObjects(buttons,false)[0]?.object||null;if(hit!==hovered){hovered=hit;hoverAt=now;buttons.forEach(b=>b.userData.targetScale=b===hovered?1.1:1);reticle.material.color.set(hovered?0xe2e5e9:0xffffff)}buttons.forEach(b=>{const pulse=now-(b.userData.pulseAt||0)<180?1.13:b.userData.targetScale;const scale=THREE.MathUtils.lerp(b.scale.x,pulse,.18);b.scale.setScalar(scale);b.material.color.lerp(b===hovered?buttonGlow:buttonWhite,.14)});const elapsed=hovered?now-hoverAt:0;dwell.visible=!!hovered;dwell.material.opacity=Math.min(.9,elapsed/900);dwell.rotation.z=-elapsed*.003;dwell.scale.setScalar(.7+.5*Math.min(1,elapsed/900));if(hovered&&elapsed>900){hovered.userData.action();controlsUntil=now+5000;hoverAt=now+650;}}
+    const turnFromVideo=camera.quaternion.angleTo(contentDirection);
+    if(turnFromVideo>=THREE.MathUtils.degToRad(80)&&!bringPrompt.visible){placeInView(bringPrompt,0,1.9);bringPrompt.visible=true;reticle.visible=true}else if(turnFromVideo<THREE.MathUtils.degToRad(45))bringPrompt.visible=false;
+    if(controlsShown&&now>=controlsUntil)hideControls();
+    else if(menuCollapsed){if(drawer.visible&&now>=drawerUntil){drawer.visible=false;hiddenView.copy(camera.quaternion);if(!bringPrompt.visible)reticle.visible=false}else if(!drawer.visible&&camera.quaternion.angleTo(hiddenView)>=THREE.MathUtils.degToRad(20))showDrawer()}
+    else if(!controlsShown&&camera.quaternion.angleTo(hiddenView)>=THREE.MathUtils.degToRad(20))showControls();
+    if(controlsShown){const opacity=Math.min(1,Math.max(0,(controlsUntil-now)/500));ui.traverse(o=>{if(o.material){o.material.transparent=true;o.material.opacity=opacity}})}
+    const targets=buttons.filter(o=>o.visible&&o.parent?.visible!==false);camera.updateMatrixWorld();raycaster.setFromCamera(center,camera);const hit=raycaster.intersectObjects(targets,false)[0]?.object||null;if(hit!==hovered){hovered=hit;hoverAt=now;buttons.forEach(b=>b.userData.targetScale=b===hovered?1.1:1);reticle.material.color.set(hovered?0xe2e5e9:0xffffff)}buttons.forEach(b=>{const pulse=now-(b.userData.pulseAt||0)<180?1.13:(b.userData.targetScale||1);const scale=THREE.MathUtils.lerp(b.scale.x,pulse,.18);b.scale.setScalar(scale);b.material.color.lerp(b===hovered?buttonGlow:buttonWhite,.14)});const elapsed=hovered?now-hoverAt:0;dwell.visible=!!hovered;dwell.material.opacity=Math.min(.9,elapsed/900);dwell.rotation.z=-elapsed*.003;dwell.scale.setScalar(.7+.5*Math.min(1,elapsed/900));if(hovered&&elapsed>900){hovered.userData.action();controlsUntil=now+5000;hoverAt=now+650}
   }
   if(cardboard&&!renderer.xr.isPresenting){
     const w=canvas.width, h=canvas.height, eyeW=Math.ceil(w/2);if(leftTarget.width!==eyeW||leftTarget.height!==h){leftTarget.setSize(eyeW,h);rightTarget.setSize(eyeW,h)}camera.updateMatrixWorld();stereoCamera.aspect=.5;stereoCamera.update(camera);
