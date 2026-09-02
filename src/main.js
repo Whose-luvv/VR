@@ -107,8 +107,11 @@ function activatePhysicalTarget(){
   if(!cardboard||performance.now()-lastPhysicalActivation<350)return false;
   camera.updateMatrixWorld(true);raycaster.setFromCamera(center,camera);
   const tapTargets=buttons.filter(o=>o.userData.tapOnly&&o.visible&&o.parent?.visible!==false);
-  const target=raycaster.intersectObjects(tapTargets,false)[0]?.object;
-  if(!target)return false;lastPhysicalActivation=performance.now();target.userData.action();return true;
+  // Prefer the exact center-ray target. Some headset buttons touch the screen
+  // before Android sends a usable pointer position, so fall back to the one
+  // special action currently visible (the prompt has priority over the drawer).
+  const target=raycaster.intersectObjects(tapTargets,false)[0]?.object||(bringPrompt.visible?bringPrompt:null)||(drawer.visible?drawer:null);
+  if(!target)return false;lastPhysicalActivation=performance.now();target.userData.pulseAt=performance.now();target.userData.action();return true;
 }
 
 $('.mode-grid').addEventListener('click',e=>{const b=e.target.closest('.mode');if(!b)return;document.querySelectorAll('.mode').forEach(x=>x.classList.toggle('active',x===b));projection=b.dataset.mode;applyProjection()});
@@ -133,7 +136,11 @@ function stop(){active=false;cardboard=false;renderer.setPixelRatio(normalPixelR
 async function tryFullscreen(){try{await document.documentElement.requestFullscreen({navigationUI:'hide'})}catch{}}
 async function enableOrientation(){if(typeof DeviceOrientationEvent?.requestPermission==='function'){try{orientationEnabled=(await DeviceOrientationEvent.requestPermission())==='granted'}catch{}}else orientationEnabled=true;}
 window.addEventListener('deviceorientation',e=>{if(!cardboard||renderer.xr.isPresenting||!orientationEnabled||e.alpha==null)return;const firstReading=baseHeading==null;if(firstReading)baseHeading=e.alpha;const rad=THREE.MathUtils.degToRad;const eu=new THREE.Euler(rad(e.beta||0),rad(e.alpha-baseHeading),-rad(e.gamma||0),'YXZ');const q1=new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5));const orient=rad(screen.orientation?.angle||window.orientation||0);camera.quaternion.setFromEuler(eu).multiply(q1).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),-orient));if(firstReading)contentDirection.copy(camera.quaternion)});
-canvas.addEventListener('pointerdown',e=>{dragging=true;lastX=pointerStartX=e.clientX;lastY=pointerStartY=e.clientY;if(active&&!cardboard)toggle()});canvas.addEventListener('pointerenter',e=>{lastX=e.clientX;lastY=e.clientY});window.addEventListener('pointerup',e=>{const wasTap=Math.hypot((e.clientX??pointerStartX)-pointerStartX,(e.clientY??pointerStartY)-pointerStartY)<18;dragging=false;if(wasTap)activatePhysicalTarget()});canvas.addEventListener('click',activatePhysicalTarget);canvas.addEventListener('touchend',e=>{if(cardboard){e.preventDefault();activatePhysicalTarget()}},{passive:false});window.addEventListener('keydown',e=>{if(cardboard&&(e.key==='Enter'||e.key===' ')){e.preventDefault();activatePhysicalTarget()}});window.addEventListener('pointermove',e=>{if(!dragging&&!cardboard){lastX=e.clientX;lastY=e.clientY;return}const dx=e.clientX-lastX,dy=e.clientY-lastY;if(Math.abs(dx)>innerWidth/2||Math.abs(dy)>innerHeight/2){lastX=e.clientX;lastY=e.clientY;return}yaw-=dx*.004;pitch=Math.max(-1.4,Math.min(1.4,pitch-dy*.004));camera.rotation.set(pitch,yaw,0,'YXZ');lastX=e.clientX;lastY=e.clientY});
+canvas.addEventListener('pointerdown',e=>{dragging=true;lastX=pointerStartX=e.clientX;lastY=pointerStartY=e.clientY;if(active&&!cardboard)toggle()});canvas.addEventListener('pointerenter',e=>{lastX=e.clientX;lastY=e.clientY});window.addEventListener('pointerup',e=>{const wasTap=Math.hypot((e.clientX??pointerStartX)-pointerStartX,(e.clientY??pointerStartY)-pointerStartY)<18;dragging=false;if(wasTap)activatePhysicalTarget()});window.addEventListener('pointermove',e=>{if(!dragging&&!cardboard){lastX=e.clientX;lastY=e.clientY;return}const dx=e.clientX-lastX,dy=e.clientY-lastY;if(Math.abs(dx)>innerWidth/2||Math.abs(dy)>innerHeight/2){lastX=e.clientX;lastY=e.clientY;return}yaw-=dx*.004;pitch=Math.max(-1.4,Math.min(1.4,pitch-dy*.004));camera.rotation.set(pitch,yaw,0,'YXZ');lastX=e.clientX;lastY=e.clientY});
+// Capture on the whole document because a mechanical headset button can touch
+// an overlay rather than the WebGL canvas, and many viewers emit press-down only.
+for(const eventName of ['pointerdown','mousedown','touchstart','click'])document.addEventListener(eventName,e=>{if(!e.target?.closest?.('#exit, #launcher'))activatePhysicalTarget()},{capture:true,passive:true});
+window.addEventListener('keydown',e=>{if(cardboard&&(e.key==='Enter'||e.key===' ')){e.preventDefault();activatePhysicalTarget()}});
 
 function render(){const now=performance.now();if(active&&video.duration)progress.scale.x=Math.max(.001,video.currentTime/video.duration);if(cardboard){
     const turnFromVideo=camera.quaternion.angleTo(contentDirection);
