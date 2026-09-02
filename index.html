@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#05070b" />
+    <title>Jio VR Player</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene"></canvas>
+      <section id="launcher" class="launcher">
+        <div class="brand"><span>◉</span> Jio VR Player</div>
+        <h1>Any video. Inside your headset.</h1>
+        <p>Local files stay on your phone and begin playing immediately.</p>
+        <label class="file-button">Choose video<input id="file" type="file" accept="video/*" /></label>
+        <div class="mode-grid" role="radiogroup" aria-label="Video projection">
+          <button class="mode active" data-mode="flat">2D <small>Flat screen</small></button>
+          <button class="mode" data-mode="180">180° <small>Half sphere</small></button>
+          <button class="mode" data-mode="360">360° <small>Full sphere</small></button>
+        </div>
+        <label class="select-row">Source layout
+          <select id="layout"><option value="mono">Mono / normal</option><option value="sbs">3D side-by-side</option><option value="tb">3D top / bottom</option></select>
+        </label>
+        <details class="calibration"><summary>Headset lens calibration</summary>
+          <label>Lens correction <input id="distortion" type="range" min="0" max="0.55" value="0.28" step="0.01"><output id="distortionValue">0.28</output></label>
+          <label>Eye distance <input id="ipd" type="range" min="54" max="74" value="64" step="1"><output id="ipdValue">64 mm</output></label>
+          <label>Frame distance <input id="frameDistance" type="range" min="-18" max="18" value="0" step="1"><output id="frameDistanceValue">Center</output></label>
+        </details>
+        <div class="launch-row">
+          <button id="normal" disabled>Open player</button>
+          <button id="headset" class="primary" disabled>Enter headset</button>
+        </div>
+        <p id="status" class="status">Select a video to start</p>
+      </section>
+      <div id="toast" class="toast"></div>
+      <button id="exit" class="exit hidden">Exit</button>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
