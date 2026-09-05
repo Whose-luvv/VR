@@ -23,7 +23,7 @@ try {
   const after=await page.locator('#scene').screenshot();
   assert.equal(beforeState.projection,'180');
   assert.equal(beforeState.layout,'sbs');
-  assert.ok(afterState.fov<beforeState.fov,`Expected FOV to shrink: ${beforeState.fov} -> ${afterState.fov}`);
+  assert.ok(afterState.compositorZoom>beforeState.compositorZoom,`Expected compositor zoom to increase: ${beforeState.compositorZoom} -> ${afterState.compositorZoom}`);
   assert.notDeepEqual(after,before,'Rendered stereo pixels did not change after 180° VR zoom');
   console.log(JSON.stringify({beforeState,afterState,renderedPixelsChanged:true}));
 } finally {
