@@ -26,7 +26,7 @@ texture.minFilter = THREE.LinearFilter; texture.magFilter = THREE.LinearFilter;
 let projection = 'flat', layout = 'mono', sourceUrl, active = false, cardboard = false, loadId = 0;
 let yaw = 0, pitch = 0, dragging = false, lastX = 0, lastY = 0;
 let orientationEnabled = false, baseHeading = null;
-let zoomLevel = 1;
+let flatZoomLevel = 1, panoZoomLevel = 1;
 let controlsUntil = 0, hiddenView = new THREE.Quaternion(), controlsShown = false;
 let menuCollapsed = false, drawerUntil = 0, pointerStartX = 0, pointerStartY = 0;
 let lastPhysicalActivation = 0;
@@ -82,12 +82,12 @@ const warpMat=new THREE.ShaderMaterial({depthTest:false,uniforms:{leftMap:{value
 postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),warpMat));
 
 function setEyeTexture(eye=0){texture.repeat.set(1,1);texture.offset.set(0,0);if(layout==='sbs'){texture.repeat.x=.5;texture.offset.x=eye*.5}else if(layout==='tb'){texture.repeat.y=.5;texture.offset.y=eye===0?.5:0}texture.updateMatrix()}
-function applyProjection(){screen.visible=active&&projection==='flat';sphere.visible=active&&projection!=='flat';sphere180.visible=projection==='180';sphere360.visible=projection==='360';setEyeTexture(0);fitScreen()}
-function fitScreen(){ if(!video.videoWidth)return; const ratio=video.videoWidth/video.videoHeight; screen.scale.set(ratio/(16/9),1,1); }
+function applyProjection(){screen.visible=active&&projection==='flat';sphere.visible=active&&projection!=='flat';sphere180.visible=projection==='180';sphere360.visible=projection==='360';camera.zoom=projection==='flat'?1:panoZoomLevel;camera.updateProjectionMatrix();setEyeTexture(0);fitScreen()}
+function fitScreen(){if(!video.videoWidth)return;const ratio=video.videoWidth/video.videoHeight;screen.scale.set(ratio/(16/9)*flatZoomLevel,flatZoomLevel,1)}
 function toggle(){ video.paused?video.play().catch(()=>toast('Tap once to allow playback')):video.pause(); }
 function seek(n){video.currentTime=Math.max(0,Math.min(video.duration||Infinity,video.currentTime+n));toast(`${n>0?'+':''}${n}s`)}
 function volume(n){video.volume=Math.max(0,Math.min(1,video.volume+n));toast(`Volume ${Math.round(video.volume*100)}%`)}
-function zoom(n){const factor=n>0?1.35:1/1.35;zoomLevel*=factor;if(projection==='flat')screen.scale.multiplyScalar(factor);else{camera.zoom=1;camera.fov=THREE.MathUtils.clamp(70/zoomLevel,5,170);camera.updateProjectionMatrix()}toast(`Zoom ${zoomLevel.toFixed(2)}×`)}
+function zoom(n){const factor=n>0?1.35:1/1.35;if(projection==='flat'){flatZoomLevel*=factor;screen.scale.multiplyScalar(factor);toast(`Zoom ${flatZoomLevel.toFixed(2)}×`)}else{panoZoomLevel*=factor;camera.zoom=panoZoomLevel;camera.updateProjectionMatrix();toast(`VR zoom ${panoZoomLevel.toFixed(2)}×`)}}
 function recenter(){bringVideoHere()}
 function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1400)}
 function placeInView(object,y=-.15,distance=2.25){object.position.set(0,y,-distance).applyQuaternion(camera.quaternion).add(camera.position);object.quaternion.copy(camera.quaternion)}
