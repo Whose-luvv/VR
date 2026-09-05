@@ -117,8 +117,9 @@ function activatePhysicalTarget(){
   if(!target)return false;lastPhysicalActivation=performance.now();target.userData.pulseAt=performance.now();target.userData.action();return true;
 }
 
-$('.mode-grid').addEventListener('click',e=>{const b=e.target.closest('.mode');if(!b)return;document.querySelectorAll('.mode').forEach(x=>x.classList.toggle('active',x===b));projection=b.dataset.mode;applyProjection()});
-$('#layout').addEventListener('change',e=>{layout=e.target.value;applyProjection()});
+function updateFormatHint(){const hints={mono:projection==='flat'?'2D has no stereoscopic depth.':'Mono: the same panoramic view is sent to both eyes.',sbs:'SBS active: left half → left eye, right half → right eye.',tb:'Top/bottom active: one half is sent to each eye.'};$('#formatHint').textContent=hints[layout]}
+$('.mode-grid').addEventListener('click',e=>{const b=e.target.closest('.mode');if(!b)return;document.querySelectorAll('.mode').forEach(x=>x.classList.toggle('active',x===b));projection=b.dataset.mode;if(projection==='flat'){layout='mono'}else{layout='sbs';toast(`${projection}° VR: 3D side-by-side selected`)}$('#layout').value=layout;updateFormatHint();applyProjection()});
+$('#layout').addEventListener('change',e=>{layout=e.target.value;updateFormatHint();applyProjection()});
 $('#distortion').addEventListener('input',e=>{warpMat.uniforms.k.value=+e.target.value;$('#distortionValue').value=(+e.target.value).toFixed(2)});
 $('#ipd').addEventListener('input',e=>{stereoCamera.eyeSep=+e.target.value/1000;$('#ipdValue').value=`${e.target.value} mm`});
 $('#frameDistance').addEventListener('input',e=>{const value=+e.target.value;warpMat.uniforms.frameDistance.value=value/100;$('#frameDistanceValue').value=value===0?'Center':`${Math.abs(value)} ${value<0?'close':'far'}`});

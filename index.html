@@ -20,8 +20,9 @@
           <button class="mode" data-mode="360">360° <small>Full sphere</small></button>
         </div>
         <label class="select-row">Source layout
-          <select id="layout"><option value="mono">Mono / normal</option><option value="sbs">3D side-by-side</option><option value="tb">3D top / bottom</option></select>
+          <select id="layout"><option value="mono">Mono — same view both eyes</option><option value="sbs">3D SBS — left/right halves</option><option value="tb">3D TB — top/bottom halves</option></select>
         </label>
+        <p id="formatHint" class="format-hint">2D videos have no stereoscopic depth.</p>
         <details class="calibration"><summary>Headset lens calibration</summary>
           <label>Lens correction <input id="distortion" type="range" min="0" max="0.55" value="0.28" step="0.01"><output id="distortionValue">0.28</output></label>
           <label>Eye distance <input id="ipd" type="range" min="54" max="74" value="64" step="1"><output id="ipdValue">64 mm</output></label>
