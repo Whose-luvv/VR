@@ -59,9 +59,9 @@ function makeLabel(icon,text,action,x,width=.62){
 makeLabel('↶','10s',()=>seek(-10),-1.36,.65); makeLabel('▶','Play',toggle,-.52,.92); makeLabel('↷','10s',()=>seek(10),.38,.65); makeLabel('−','Volume',()=>volume(-.1),1.08,.7); makeLabel('+','Volume',()=>volume(.1),1.78,.7);
 makeLabel('−','Zoom',()=>zoom(-.35),-.8,.72);buttons.at(-1).position.y=-.4;makeLabel('+','Zoom',()=>zoom(.35),0,.72);buttons.at(-1).position.y=-.4;makeLabel('◎','Center',recenter,.8,.8);buttons.at(-1).position.y=-.4;
 const closeButton=makeLabel('×','Hide',collapseControls,1.68,.68);closeButton.position.y=-.4;
-const progressBg=new THREE.Mesh(new THREE.PlaneGeometry(3.75,.12),new THREE.MeshBasicMaterial({color:0x283449,depthTest:false}));progressBg.position.set(.2,.28,0);ui.add(progressBg);
+const progressBg=new THREE.Mesh(new THREE.PlaneGeometry(3.75,.2),new THREE.MeshBasicMaterial({color:0x283449,depthTest:false}));progressBg.position.set(.2,.28,0);ui.add(progressBg);
 const progress=new THREE.Mesh(new THREE.PlaneGeometry(3.75,.055),new THREE.MeshBasicMaterial({color:0xd9dde3,depthTest:false}));progress.position.set(-1.675,.28,.002);progress.scale.x=0;ui.add(progress);
-progressBg.userData.dwellMs=700;progressBg.userData.noAnimate=true;progressBg.userData.action=()=>{if(video.duration&&Number.isFinite(video.duration)){const fraction=THREE.MathUtils.clamp(progressBg.userData.hitU??0,0,1);video.currentTime=fraction*video.duration;toast(`Jumped to ${format(video.currentTime)}`)}};buttons.push(progressBg);
+progressBg.userData.dwellMs=500;progressBg.userData.noAnimate=true;progressBg.userData.action=()=>{if(video.duration&&Number.isFinite(video.duration)){const fraction=THREE.MathUtils.clamp(progressBg.userData.hitU??0,0,1);video.currentTime=fraction*video.duration;progress.scale.x=Math.max(.001,fraction);toast(`Jumped to ${format(video.currentTime)}`)}};buttons.push(progressBg);
 const raycaster=new THREE.Raycaster(), center=new THREE.Vector2(0,0);let hovered=null, hoverAt=0;
 const buttonWhite=new THREE.Color(0xffffff),buttonGlow=new THREE.Color(0xd9dde3);
 const stereoCamera = new THREE.StereoCamera(); stereoCamera.eyeSep = .064;
@@ -87,7 +87,7 @@ function fitScreen(){ if(!video.videoWidth)return; const ratio=video.videoWidth/
 function toggle(){ video.paused?video.play().catch(()=>toast('Tap once to allow playback')):video.pause(); }
 function seek(n){video.currentTime=Math.max(0,Math.min(video.duration||Infinity,video.currentTime+n));toast(`${n>0?'+':''}${n}s`)}
 function volume(n){video.volume=Math.max(0,Math.min(1,video.volume+n));toast(`Volume ${Math.round(video.volume*100)}%`)}
-function zoom(n){const factor=n>0?1.3:1/1.3;zoomLevel*=factor;if(projection==='flat')screen.scale.multiplyScalar(factor);else{camera.zoom=zoomLevel;camera.updateProjectionMatrix()}toast(`Zoom ${zoomLevel.toFixed(2)}×`)}
+function zoom(n){const factor=n>0?1.35:1/1.35;zoomLevel*=factor;if(projection==='flat')screen.scale.multiplyScalar(factor);else{camera.zoom=1;camera.fov=THREE.MathUtils.clamp(70/zoomLevel,5,170);camera.updateProjectionMatrix()}toast(`Zoom ${zoomLevel.toFixed(2)}×`)}
 function recenter(){bringVideoHere()}
 function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1400)}
 function placeInView(object,y=-.15,distance=2.25){object.position.set(0,y,-distance).applyQuaternion(camera.quaternion).add(camera.position);object.quaternion.copy(camera.quaternion)}
@@ -109,7 +109,8 @@ function activatePhysicalTarget(){
   // before Android sends a usable pointer position, so fall back to the one
   // special action currently visible (the prompt has priority over the drawer).
   const highlightedTarget=hovered&&tapTargets.includes(hovered)?hovered:null;
-  const target=raycaster.intersectObjects(tapTargets,false)[0]?.object||highlightedTarget||(bringPrompt.visible?bringPrompt:null)||(drawer.visible?drawer:null);
+  const intersection=raycaster.intersectObjects(tapTargets,false)[0];const target=intersection?.object||highlightedTarget||(bringPrompt.visible?bringPrompt:null)||(drawer.visible?drawer:null);
+  if(intersection?.uv)target.userData.hitU=intersection.uv.x;
   if(!target)return false;lastPhysicalActivation=performance.now();target.userData.pulseAt=performance.now();target.userData.action();return true;
 }
 
