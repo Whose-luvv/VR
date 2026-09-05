@@ -32,20 +32,13 @@ let lastPhysicalActivation = 0;
 const contentDirection = new THREE.Quaternion();
 const reticleMotionAnchor = new THREE.Quaternion();let reticleUntil = 0;
 
-const panoMat = new THREE.ShaderMaterial({
-  side: THREE.BackSide,
-  uniforms: { map:{value:texture}, projection:{value:2}, layout:{value:0}, eye:{value:0} },
-  vertexShader: `varying vec3 vDir; void main(){ vDir=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
-  fragmentShader: `uniform sampler2D map; uniform int projection; uniform int layout; uniform float eye; varying vec3 vDir;
-    void main(){ vec3 d=normalize(vDir); float lon=atan(d.x,-d.z); float lat=asin(clamp(d.y,-1.,1.));
-      float u; if(projection==1){ if(abs(lon)>1.570796){gl_FragColor=vec4(0.,0.,0.,1.);return;} u=lon/3.14159265+.5; } else { u=lon/6.2831853+.5; }
-      vec2 uv=vec2(fract(u),lat/3.14159265+.5); if(layout==1) uv.x=uv.x*.5+eye*.5; if(layout==2) uv.y=uv.y*.5+(1.-eye)*.5;
-      gl_FragColor=texture2D(map,uv); }`
-});
-// 48×28 is visually smooth inside a phone headset while avoiding unnecessary
-// per-eye geometry work on lower-end mobile GPUs.
-const sphere = new THREE.Mesh(new THREE.SphereGeometry(10, 48, 28), panoMat);
-sphere.visible = false; scene.add(sphere);
+const panoMat = new THREE.MeshBasicMaterial({map:texture,side:THREE.BackSide,toneMapped:false});
+// Native textured geometry is more reliable for mobile video decoders than a
+// custom video fragment shader. The hemisphere maps the full source across 180°.
+const sphere = new THREE.Group();
+const sphere360 = new THREE.Mesh(new THREE.SphereGeometry(10,48,28),panoMat);
+const sphere180 = new THREE.Mesh(new THREE.SphereGeometry(10,48,28,Math.PI,Math.PI),panoMat);
+sphere.add(sphere360,sphere180);sphere.visible=false;scene.add(sphere);
 const flatMat = new THREE.MeshBasicMaterial({ map:texture, side:THREE.DoubleSide, toneMapped:false });
 const screen = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 2.925), flatMat);
 screen.position.set(0,1.6,-4); screen.visible=false; scene.add(screen);
@@ -86,7 +79,8 @@ const postScene=new THREE.Scene(), postCamera=new THREE.OrthographicCamera(-1,1,
 const warpMat=new THREE.ShaderMaterial({depthTest:false,uniforms:{leftMap:{value:leftTarget.texture},rightMap:{value:rightTarget.texture},k:{value:.28},frameDistance:{value:0}},vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position,1.);}`,fragmentShader:`uniform sampler2D leftMap;uniform sampler2D rightMap;uniform float k;uniform float frameDistance;varying vec2 vUv;void main(){bool rightEye=vUv.x>=.5;float localX=rightEye?(vUv.x-.5)*2.:vUv.x*2.;localX+=rightEye?-frameDistance:frameDistance;vec2 p=vec2(localX*2.-1.,vUv.y*2.-1.);float r2=dot(p,p);vec2 q=p*(1.+k*r2);if(max(abs(q.x),abs(q.y))>1.){gl_FragColor=vec4(0.,0.,0.,1.);return;}vec2 uv=(q+1.)*.5;gl_FragColor=rightEye?texture2D(rightMap,uv):texture2D(leftMap,uv);}`});
 postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),warpMat));
 
-function applyProjection(){ screen.visible=active&&projection==='flat'; sphere.visible=active&&projection!=='flat'; panoMat.uniforms.projection.value=projection==='180'?1:2; panoMat.uniforms.layout.value={mono:0,sbs:1,tb:2}[layout]; fitScreen(); }
+function setEyeTexture(eye=0){texture.repeat.set(1,1);texture.offset.set(0,0);if(layout==='sbs'){texture.repeat.x=.5;texture.offset.x=eye*.5}else if(layout==='tb'){texture.repeat.y=.5;texture.offset.y=eye===0?.5:0}texture.updateMatrix()}
+function applyProjection(){screen.visible=active&&projection==='flat';sphere.visible=active&&projection!=='flat';sphere180.visible=projection==='180';sphere360.visible=projection==='360';setEyeTexture(0);fitScreen()}
 function fitScreen(){ if(!video.videoWidth)return; const ratio=video.videoWidth/video.videoHeight; screen.scale.set(ratio/(16/9),1,1); }
 function toggle(){ video.paused?video.play().catch(()=>toast('Tap once to allow playback')):video.pause(); }
 function seek(n){video.currentTime=Math.max(0,Math.min(video.duration||Infinity,video.currentTime+n));toast(`${n>0?'+':''}${n}s`)}
@@ -160,8 +154,8 @@ function render(){const now=performance.now();if(active&&video.duration)progress
   if(cardboard&&!renderer.xr.isPresenting){
     const w=canvas.width, h=canvas.height, eyeW=Math.ceil(w/2);if(leftTarget.width!==eyeW||leftTarget.height!==h){leftTarget.setSize(eyeW,h);rightTarget.setSize(eyeW,h)}camera.updateMatrixWorld();stereoCamera.aspect=.5;stereoCamera.update(camera);
     renderer.setScissorTest(false);renderer.setViewport(0,0,eyeW,h);renderer.setClearColor(0x000000);
-    renderer.setRenderTarget(leftTarget);renderer.clear();panoMat.uniforms.eye.value=0;renderer.render(scene,stereoCamera.cameraL);
-    renderer.setRenderTarget(rightTarget);renderer.clear();panoMat.uniforms.eye.value=1;renderer.render(scene,stereoCamera.cameraR);
+    renderer.setRenderTarget(leftTarget);renderer.clear();setEyeTexture(0);renderer.render(scene,stereoCamera.cameraL);
+    renderer.setRenderTarget(rightTarget);renderer.clear();setEyeTexture(1);renderer.render(scene,stereoCamera.cameraR);
     renderer.setRenderTarget(null);renderer.setViewport(0,0,w/renderer.getPixelRatio(),h/renderer.getPixelRatio());renderer.render(postScene,postCamera);
   }else renderer.render(scene,camera)}
 renderer.setAnimationLoop(render);
