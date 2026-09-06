@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
-import { fovForZoom } from './zoom.js';
+import { clampPanoZoom, panoSpanForZoom } from './zoom.js';
 import './style.css';
 
 const $ = (s) => document.querySelector(s);
@@ -39,8 +39,9 @@ const panoMat = new THREE.MeshBasicMaterial({map:texture,side:THREE.BackSide,ton
 // Native textured geometry is more reliable for mobile video decoders than a
 // custom video fragment shader. The hemisphere maps the full source across 180°.
 const sphere = new THREE.Group();
-const sphere360 = new THREE.Mesh(new THREE.SphereGeometry(10,48,28),panoMat);
-const sphere180 = new THREE.Mesh(new THREE.SphereGeometry(10,48,28,Math.PI,Math.PI),panoMat);
+const PANO_RADIUS=10,PANO_WIDTH_SEGMENTS=64,PANO_HEIGHT_SEGMENTS=36;
+const sphere360 = new THREE.Mesh(new THREE.SphereGeometry(PANO_RADIUS,PANO_WIDTH_SEGMENTS,PANO_HEIGHT_SEGMENTS),panoMat);
+const sphere180 = new THREE.Mesh(new THREE.SphereGeometry(PANO_RADIUS,PANO_WIDTH_SEGMENTS,PANO_HEIGHT_SEGMENTS,Math.PI,Math.PI),panoMat);
 sphere.add(sphere360,sphere180);sphere.visible=false;scene.add(sphere);
 const flatMat = new THREE.MeshBasicMaterial({ map:texture, side:THREE.DoubleSide, toneMapped:false });
 const screen = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 2.925), flatMat);
@@ -64,7 +65,7 @@ const closeButton=makeLabel('×','Hide',collapseControls,1.68,.68);closeButton.p
 const timelineCanvas=document.createElement('canvas');timelineCanvas.width=1024;timelineCanvas.height=64;const timelineContext=timelineCanvas.getContext('2d');const timelineTexture=new THREE.CanvasTexture(timelineCanvas);timelineTexture.minFilter=THREE.LinearFilter;timelineTexture.magFilter=THREE.LinearFilter;let drawnProgress=-1;
 function updateTimeline(fraction){fraction=THREE.MathUtils.clamp(fraction||0,0,1);if(Math.abs(fraction-drawnProgress)<.001)return;drawnProgress=fraction;const g=timelineContext,w=timelineCanvas.width,h=timelineCanvas.height,r=h/2;g.clearRect(0,0,w,h);g.fillStyle='#181818';g.beginPath();g.roundRect(0,0,w,h,r);g.fill();if(fraction>0){g.save();g.beginPath();g.roundRect(0,0,w,h,r);g.clip();g.fillStyle='#ffffff';g.fillRect(0,0,w*fraction,h);g.restore()}timelineTexture.needsUpdate=true}
 updateTimeline(0);const progressBg=new THREE.Mesh(new THREE.PlaneGeometry(3.55,.16),new THREE.MeshBasicMaterial({map:timelineTexture,transparent:true,depthTest:false,depthWrite:false}));progressBg.position.set(.2,.38,.006);progressBg.renderOrder=3;ui.add(progressBg);
-progressBg.userData.dwellMs=5000;progressBg.userData.noAnimate=true;progressBg.userData.action=()=>{if(video.duration&&Number.isFinite(video.duration)){const fraction=THREE.MathUtils.clamp(progressBg.userData.hitU??0,0,1);video.currentTime=fraction*video.duration;updateTimeline(fraction);toast(`Jumped to ${format(video.currentTime)}`)}};buttons.push(progressBg);
+progressBg.userData.dwellMs=3000;progressBg.userData.noAnimate=true;progressBg.userData.action=()=>{if(video.duration&&Number.isFinite(video.duration)){const fraction=THREE.MathUtils.clamp(progressBg.userData.hitU??0,0,1);video.currentTime=fraction*video.duration;updateTimeline(fraction);toast(`Jumped to ${format(video.currentTime)}`)}};buttons.push(progressBg);
 const raycaster=new THREE.Raycaster(), center=new THREE.Vector2(0,0);let hovered=null, hoverAt=0;
 const buttonWhite=new THREE.Color(0xffffff),buttonGlow=new THREE.Color(0xd9dde3);
 const stereoCamera = new THREE.StereoCamera(); stereoCamera.eyeSep = .064;
@@ -84,14 +85,30 @@ const postScene=new THREE.Scene(), postCamera=new THREE.OrthographicCamera(-1,1,
 const warpMat=new THREE.ShaderMaterial({depthTest:false,uniforms:{leftMap:{value:leftTarget.texture},rightMap:{value:rightTarget.texture},k:{value:.28},frameDistance:{value:0},viewZoom:{value:1}},vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position,1.);}`,fragmentShader:`uniform sampler2D leftMap;uniform sampler2D rightMap;uniform float k;uniform float frameDistance;uniform float viewZoom;varying vec2 vUv;void main(){bool rightEye=vUv.x>=.5;float localX=rightEye?(vUv.x-.5)*2.:vUv.x*2.;localX+=rightEye?-frameDistance:frameDistance;vec2 p=vec2(localX*2.-1.,vUv.y*2.-1.)/viewZoom;float r2=dot(p,p);vec2 q=p*(1.+k*r2);if(max(abs(q.x),abs(q.y))>1.){gl_FragColor=vec4(0.,0.,0.,1.);return;}vec2 uv=(q+1.)*.5;gl_FragColor=rightEye?texture2D(rightMap,uv):texture2D(leftMap,uv);}`});
 postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),warpMat));
 
+// Under WebXR the runtime drives its own camera, so gaze targeting has to be
+// cast from that one or the controls (zoom included) are unreachable in VR.
+function gazeCamera(){return renderer.xr.isPresenting?renderer.xr.getCamera():camera}
 function setEyeTexture(eye=0){texture.repeat.set(1,1);texture.offset.set(0,0);if(layout==='sbs'){texture.repeat.x=.5;texture.offset.x=eye*.5}else if(layout==='tb'){texture.repeat.y=.5;texture.offset.y=eye===0?.5:0}texture.updateMatrix()}
-function applyPanoZoom(){if(cardboard){camera.zoom=1;camera.fov=70;warpMat.uniforms.viewZoom.value=panoZoomLevel}else{warpMat.uniforms.viewZoom.value=1;camera.zoom=1;camera.fov=fovForZoom(70,panoZoomLevel)}camera.updateProjectionMatrix()}
-function applyProjection(){screen.visible=active&&projection==='flat';sphere.visible=active&&projection!=='flat';sphere180.visible=projection==='180';sphere360.visible=projection==='360';if(projection==='flat'){camera.zoom=1;camera.fov=70;camera.updateProjectionMatrix()}else applyPanoZoom();setEyeTexture(0);fitScreen()}
+// Rebuild each hemisphere so the whole video maps onto a narrower slice of the
+// sphere. This is a true magnification of the source and, unlike a camera FOV
+// change or a compositor upscale, it survives WebXR (where the runtime owns the
+// projection matrices) and keeps full 2K detail in cardboard stereo.
+function buildPanoGeometry(){
+  const [thetaStart,thetaLength]=panoSpanForZoom(0,Math.PI,panoZoomLevel);
+  const [phiStart360,phiLength360]=panoSpanForZoom(0,Math.PI*2,panoZoomLevel);
+  const [phiStart180,phiLength180]=panoSpanForZoom(Math.PI,Math.PI,panoZoomLevel);
+  sphere360.geometry.dispose();
+  sphere360.geometry=new THREE.SphereGeometry(PANO_RADIUS,PANO_WIDTH_SEGMENTS,PANO_HEIGHT_SEGMENTS,phiStart360,phiLength360,thetaStart,thetaLength);
+  sphere180.geometry.dispose();
+  sphere180.geometry=new THREE.SphereGeometry(PANO_RADIUS,PANO_WIDTH_SEGMENTS,PANO_HEIGHT_SEGMENTS,phiStart180,phiLength180,thetaStart,thetaLength);
+}
+function applyPanoZoom(){panoZoomLevel=clampPanoZoom(panoZoomLevel);buildPanoGeometry();warpMat.uniforms.viewZoom.value=1;camera.zoom=1;camera.fov=70;camera.updateProjectionMatrix()}
+function applyProjection(){screen.visible=active&&projection==='flat';sphere.visible=active&&projection!=='flat';sphere180.visible=projection==='180';sphere360.visible=projection==='360';if(projection==='flat'){warpMat.uniforms.viewZoom.value=1;camera.zoom=1;camera.fov=70;camera.updateProjectionMatrix()}else applyPanoZoom();setEyeTexture(0);fitScreen()}
 function fitScreen(){if(!video.videoWidth)return;const ratio=video.videoWidth/video.videoHeight;screen.scale.set(ratio/(16/9)*flatZoomLevel,flatZoomLevel,1)}
 function toggle(){ video.paused?video.play().catch(()=>toast('Tap once to allow playback')):video.pause(); }
 function seek(n){video.currentTime=Math.max(0,Math.min(video.duration||Infinity,video.currentTime+n));toast(`${n>0?'+':''}${n}s`)}
 function volume(n){video.volume=Math.max(0,Math.min(1,video.volume+n));toast(`Volume ${Math.round(video.volume*100)}%`)}
-function zoom(n){const factor=n>0?1.35:1/1.35;if(projection==='flat'){flatZoomLevel*=factor;screen.scale.multiplyScalar(factor);toast(`Zoom ${flatZoomLevel.toFixed(2)}×`)}else{panoZoomLevel*=factor;applyPanoZoom();toast(`VR zoom ${panoZoomLevel.toFixed(2)}×`)}}
+function zoom(n){const factor=n>0?1.35:1/1.35;if(projection==='flat'){flatZoomLevel*=factor;screen.scale.multiplyScalar(factor);toast(`Zoom ${flatZoomLevel.toFixed(2)}×`)}else{const before=panoZoomLevel;panoZoomLevel=clampPanoZoom(panoZoomLevel*factor);applyPanoZoom();toast(panoZoomLevel===before&&n<0?'Already at full field of view':`${projection}° zoom ${panoZoomLevel.toFixed(2)}×`)}}
 function recenter(){bringVideoHere()}
 function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1400)}
 function placeInView(object,y=-.15,distance=2.25){object.position.set(0,y,-distance).applyQuaternion(camera.quaternion).add(camera.position);object.quaternion.copy(camera.quaternion)}
@@ -107,7 +124,7 @@ function showDrawer(){if(!cardboard||!menuCollapsed)return;placeInView(drawer,.3
 function expandControls(){menuCollapsed=false;drawer.visible=false;showControls()}
 function activatePhysicalTarget(){
   if(!cardboard||performance.now()-lastPhysicalActivation<350)return false;
-  camera.updateMatrixWorld(true);raycaster.setFromCamera(center,camera);
+  camera.updateMatrixWorld(true);raycaster.setFromCamera(center,gazeCamera());
   const tapTargets=buttons.filter(o=>o.visible&&o.parent?.visible!==false);
   // Prefer the exact center-ray target. Some headset buttons touch the screen
   // before Android sends a usable pointer position, so fall back to the one
@@ -161,7 +178,7 @@ function render(){const now=performance.now();if(active&&video.duration)updateTi
     if(controlsShown&&!hovered&&camera.quaternion.angleTo(ui.quaternion)>=THREE.MathUtils.degToRad(45)){ui.position.set(0,-1.05,-2.7).applyQuaternion(camera.quaternion).add(camera.position);ui.quaternion.copy(camera.quaternion)}
     if(menuCollapsed&&!hovered&&camera.quaternion.angleTo(drawer.quaternion)>=THREE.MathUtils.degToRad(45))placeInView(drawer,-.9,2.1);
     if(controlsShown){const opacity=Math.min(1,Math.max(0,(controlsUntil-now)/500));ui.traverse(o=>{if(o.material){o.material.transparent=true;o.material.opacity=opacity}})}
-    const targets=buttons.filter(o=>o.visible&&o.parent?.visible!==false);camera.updateMatrixWorld();raycaster.setFromCamera(center,camera);const intersection=raycaster.intersectObjects(targets,false)[0];const hit=intersection?.object||null;if(intersection?.uv)hit.userData.hitU=intersection.uv.x;if(hit!==hovered){hovered=hit;hoverAt=now;buttons.forEach(b=>b.userData.targetScale=b===hovered&&!b.userData.noAnimate?1.1:1);reticle.material.color.set(hovered?0xe2e5e9:0xffffff)}if(hovered){reticleUntil=Math.max(reticleUntil,now+1000);controlsUntil=Math.max(controlsUntil,now+(hovered===progressBg?5500:1000))}if(hovered===drawer)drawerUntil=Math.max(drawerUntil,now+1200);buttons.forEach(b=>{if(b.userData.noAnimate)return;const pulse=now-(b.userData.pulseAt||0)<180?1.13:(b.userData.targetScale||1);const scale=THREE.MathUtils.lerp(b.scale.x,pulse,.18);b.scale.setScalar(scale);b.material.color.lerp(b===hovered?buttonGlow:buttonWhite,.14)});const elapsed=hovered?now-hoverAt:0,dwellMs=hovered?(hovered.userData.dwellMs||900):900,dwellProgress=Math.min(1,elapsed/dwellMs);dwell.visible=!!hovered&&reticle.visible;dwell.material.opacity=Math.min(.3,dwellProgress);dwell.rotation.z=-elapsed*.003;dwell.scale.setScalar(.7+.5*dwellProgress);if(hovered&&elapsed>dwellMs){hovered.userData.action();controlsUntil=now+5000;hoverAt=now+650}
+    const targets=buttons.filter(o=>o.visible&&o.parent?.visible!==false);camera.updateMatrixWorld();raycaster.setFromCamera(center,gazeCamera());const intersection=raycaster.intersectObjects(targets,false)[0];const hit=intersection?.object||null;if(intersection?.uv)hit.userData.hitU=intersection.uv.x;if(hit!==hovered){hovered=hit;hoverAt=now;buttons.forEach(b=>b.userData.targetScale=b===hovered&&!b.userData.noAnimate?1.1:1);reticle.material.color.set(hovered?0xe2e5e9:0xffffff)}if(hovered){reticleUntil=Math.max(reticleUntil,now+1000);controlsUntil=Math.max(controlsUntil,now+(hovered===progressBg?3500:1000))}if(hovered===drawer)drawerUntil=Math.max(drawerUntil,now+1200);buttons.forEach(b=>{if(b.userData.noAnimate)return;const pulse=now-(b.userData.pulseAt||0)<180?1.13:(b.userData.targetScale||1);const scale=THREE.MathUtils.lerp(b.scale.x,pulse,.18);b.scale.setScalar(scale);b.material.color.lerp(b===hovered?buttonGlow:buttonWhite,.14)});const elapsed=hovered?now-hoverAt:0,dwellMs=hovered?(hovered.userData.dwellMs||900):900,dwellProgress=Math.min(1,elapsed/dwellMs);dwell.visible=!!hovered&&reticle.visible;dwell.material.opacity=Math.min(.3,dwellProgress);dwell.rotation.z=-elapsed*.003;dwell.scale.setScalar(.7+.5*dwellProgress);if(hovered&&elapsed>dwellMs){hovered.userData.action();controlsUntil=now+5000;hoverAt=now+650}
   }
   if(cardboard&&!renderer.xr.isPresenting){
     const w=canvas.width, h=canvas.height, eyeW=Math.ceil(w/2);if(leftTarget.width!==eyeW||leftTarget.height!==h){leftTarget.setSize(eyeW,h);rightTarget.setSize(eyeW,h)}camera.updateMatrixWorld();stereoCamera.aspect=.5;stereoCamera.update(camera);
@@ -175,6 +192,6 @@ window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camer
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&!renderer.xr.isPresenting)video.pause()});
 window.addEventListener('beforeunload',()=>{if(sourceUrl)URL.revokeObjectURL(sourceUrl)});
 
-if(new URLSearchParams(location.search).has('vrtest'))window.__vrTest={zoomIn:()=>zoom(1),zoomOut:()=>zoom(-1),freeze:()=>{vrTestFreeze=true;video.pause();ui.visible=false;drawer.visible=false;bringPrompt.visible=false;reticle.visible=false;reticleOutline.visible=false},getState:()=>({projection,layout,panoZoomLevel,fov:camera.fov,compositorZoom:warpMat.uniforms.viewZoom.value})};
+if(new URLSearchParams(location.search).has('vrtest'))window.__vrTest={zoomIn:()=>zoom(1),zoomOut:()=>zoom(-1),freeze:()=>{vrTestFreeze=true;video.pause();ui.visible=false;drawer.visible=false;bringPrompt.visible=false;reticle.visible=false;reticleOutline.visible=false},getState:()=>({projection,layout,panoZoomLevel,fov:camera.fov,compositorZoom:warpMat.uniforms.viewZoom.value,phiLength180:sphere180.geometry.parameters.phiLength,phiLength360:sphere360.geometry.parameters.phiLength,thetaLength:sphere180.geometry.parameters.thetaLength})};
 
 if(navigator.xr){const vr=VRButton.createButton(renderer,{optionalFeatures:['local-floor']});vr.style.display='none';document.body.appendChild(vr);}

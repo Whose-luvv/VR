@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(which ffmpeg *)",
+      "Read(//tmp/**)",
+      "Bash(ffprobe -v error -show_entries stream=width,height,codec_name /tmp/vr-sbs-2k.mp4)",
+      "Bash(node /home/user/LiveProjects/Mini_Projects/VR/dbg.mjs)"
+    ]
+  }
+}
